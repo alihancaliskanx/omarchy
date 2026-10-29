@@ -465,10 +465,14 @@ def collect_limits(entries, force):
         return result
 
   refused, failure = [], None
+  tier_by_account = {}
   for entry in fresh:
+    tier = None
     try:
       assist = post("loadCodeAssist", entry["accessToken"])
       tier = extract_tier(assist)
+      if tier:
+        tier_by_account[entry["source"]] = tier
       limits = extract_limits(post("retrieveUserQuotaSummary", entry["accessToken"], project_body(assist)))
       if limits is None:
         raise HttpError()
@@ -503,9 +507,12 @@ def collect_limits(entries, force):
     return answered(entry, tier or kept_tier(entry), limits)
 
   if refused:
-    cli = agy_cli_limits() if not os.environ.get("SANDBOX") or os.environ.get("AGY_TEST_CLI") else None
-    if cli:
-      return answered(refused[0], kept_tier(refused[0]) or "Pro", cli)
+    agy_entry = next((e for e in refused if e["source"] == "agy"), None)
+    if agy_entry:
+      cli = agy_cli_limits() if not os.environ.get("SANDBOX") or os.environ.get("AGY_TEST_CLI") else None
+      if cli:
+        matched_tier = tier_by_account.get("agy") or kept_tier(agy_entry)
+        return answered(agy_entry, matched_tier, cli)
     keep(refused[0])
     result.update(usageStatusText="Sign-in expired", authHelpText=refused_help(refused[0]))
     return result
